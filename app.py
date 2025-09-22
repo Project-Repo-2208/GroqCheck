@@ -11,9 +11,17 @@ API_URL = os.environ.get("GROQ_URL", "https://api.groq.com/openai/v1/chat/comple
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json or {}
-    user_text = data.get("response_text", "")
     
-    if not user_text:
+    # Extract Q1 answer text
+    answer_text = ""
+    for q in data.get("responseSet", []):
+        if q.get("questionCode") == "Q1":
+            answer_values = q.get("answerValues", [])
+            if answer_values and "value" in answer_values[0]:
+                answer_text = answer_values[0]["value"].get("text", "")
+            break  # stop after Q1
+
+    if not answer_text:
         return jsonify({"Output": "Neutral"})
 
     headers = {
@@ -25,7 +33,7 @@ def webhook():
         "model": MODEL_NAME,
         "messages": [
             {"role": "system", "content": "Classify sentiment as Positive, Negative, or Neutral."},
-            {"role": "user", "content": user_text}
+            {"role": "user", "content": answer_text}
         ],
         "temperature": 0
     }
@@ -53,6 +61,7 @@ def webhook():
     elif "negative" in ai_text.lower():
         sentiment = "Negative"
 
+    # Return sentiment in Output custom variable format
     return jsonify({"Output": sentiment})
 
 
