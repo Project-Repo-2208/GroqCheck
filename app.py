@@ -69,12 +69,7 @@ def webhook():
     # ---------------------------
     # Return in QuestionPro customVariables format
     # ---------------------------
-    return jsonify({
-        "customVariables": {
-            "Output": sentiment,  # Display Name
-            "output": sentiment   # Code
-        }
-    })
+    return jsonify({"Output": sentiment}), 200
 
 
 # -------------------------------
