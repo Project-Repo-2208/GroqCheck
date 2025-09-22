@@ -71,7 +71,7 @@ def webhook():
     # ---------------------------
     return jsonify({
         "customVariables": {
-            "output": sentiment   # Code
+            "custom2": sentiment   # Code
         }
     })
 
