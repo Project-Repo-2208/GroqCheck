@@ -3,19 +3,26 @@ import requests, os
 
 app = Flask(__name__)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+# Environment variables
+API_KEY = os.environ.get("GROQ_API_KEY")          # Your Groq/OpenRouter API key
+MODEL_NAME = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
+API_URL = os.environ.get("GROQ_URL", "https://api.groq.com/openai/v1/chat/completions")
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json or {}
     user_text = data.get("response_text", "")
+    
     if not user_text:
         return jsonify({"Output": "Neutral"})
 
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+
     payload = {
-        "model": "mixtral-8x7b-32768",
+        "model": MODEL_NAME,
         "messages": [
             {"role": "system", "content": "Classify sentiment as Positive, Negative, or Neutral."},
             {"role": "user", "content": user_text}
@@ -23,15 +30,23 @@ def webhook():
         "temperature": 0
     }
 
+    print("Sending payload to API:", payload)
+
+    ai_text = ""
     try:
-        r = requests.post(GROQ_URL, json=payload, headers=headers, timeout=30)
+        r = requests.post(API_URL, json=payload, headers=headers, timeout=30)
+        print("API response status:", r.status_code)
+        print("API response body:", r.text)
+
         r.raise_for_status()
         resp = r.json()
         ai_text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+    except requests.exceptions.RequestException as e:
+        print("RequestException:", e)
     except Exception as e:
-        print("Groq API error:", e)
-        ai_text = ""
+        print("Other Exception:", e)
 
+    # Determine sentiment
     sentiment = "Neutral"
     if "positive" in ai_text.lower():
         sentiment = "Positive"
@@ -40,6 +55,10 @@ def webhook():
 
     return jsonify({"Output": sentiment})
 
+
 @app.route("/", methods=["GET"])
 def index():
-    return "Server is running!"
+    return "Webhook server is running!"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
