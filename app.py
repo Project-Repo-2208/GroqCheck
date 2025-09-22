@@ -3,15 +3,23 @@ import requests, os
 
 app = Flask(__name__)
 
-API_KEY = os.environ.get("GROQ_API_KEY")
+# -------------------------------
+# Environment Variables
+# -------------------------------
+API_KEY = os.environ.get("GROQ_API_KEY")          # Your Groq/OpenRouter API key
 MODEL_NAME = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 API_URL = os.environ.get("GROQ_URL", "https://api.groq.com/openai/v1/chat/completions")
 
+# -------------------------------
+# Webhook Endpoint
+# -------------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json or {}
-    
+
+    # ---------------------------
     # Extract Q1 answer text
+    # ---------------------------
     answer_text = ""
     for q in data.get("responseSet", []):
         if q.get("questionCode") == "Q1":
@@ -23,10 +31,14 @@ def webhook():
     if not answer_text:
         sentiment = "Neutral"
     else:
+        # ---------------------------
+        # Call Groq GPT-OSS API
+        # ---------------------------
         headers = {
             "Authorization": f"Bearer {API_KEY}",
             "Content-Type": "application/json"
         }
+
         payload = {
             "model": MODEL_NAME,
             "messages": [
@@ -45,24 +57,35 @@ def webhook():
         except Exception as e:
             print("API Exception:", e)
 
+        # ---------------------------
         # Determine sentiment
+        # ---------------------------
         sentiment = "Neutral"
         if "positive" in ai_text.lower():
             sentiment = "Positive"
         elif "negative" in ai_text.lower():
             sentiment = "Negative"
 
-    # Return in QuestionPro expected format
+    # ---------------------------
+    # Return in QuestionPro customVariables format
+    # ---------------------------
     return jsonify({
         "customVariables": {
-            "Output": sentiment
+            "Output": sentiment,  # Display Name
+            "output": sentiment   # Code
         }
     })
 
 
+# -------------------------------
+# Health Check / Test Endpoint
+# -------------------------------
 @app.route("/", methods=["GET"])
 def index():
     return "Webhook server is running!"
 
+# -------------------------------
+# Run App
+# -------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
