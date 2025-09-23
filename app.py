@@ -1,14 +1,21 @@
 from flask import Flask, request, jsonify
-import requests, os
+import requests, os, re
 
 app = Flask(__name__)
 
 # -------------------------------
 # Environment Variables
 # -------------------------------
-API_KEY = os.environ.get("GROQ_API_KEY")          # Your Groq/OpenRouter API key
-MODEL_NAME = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
+API_KEY = os.environ.get("GROQ_API_KEY")           # Your Groq/OpenRouter API key
+MODEL_NAME = os.environ.get("GROQ_MODEL", "mixtral-8x7b")  # or best Groq model you have
 API_URL = os.environ.get("GROQ_URL", "https://api.groq.com/openai/v1/chat/completions")
+
+# -------------------------------
+# Helper: light normalization
+# -------------------------------
+def normalize(text: str) -> str:
+    # Collapse excessive whitespace & trim
+    return re.sub(r'\s+', ' ', text).strip()
 
 # -------------------------------
 # Webhook Endpoint
@@ -23,16 +30,18 @@ def webhook():
     answer_text = ""
     for q in data.get("responseSet", []):
         if q.get("questionCode") == "Q1":
-            answer_values = q.get("answerValues", [])
-            if answer_values and "value" in answer_values[0]:
-                answer_text = answer_values[0]["value"].get("text", "")
+            ans = q.get("answerValues", [])
+            if ans and "value" in ans[0]:
+                answer_text = ans[0]["value"].get("text", "")
             break
 
-    if not answer_text:
-        sentiment = "Neutral"
-    else:
+    sentiment = "Neutral"  # default if no text
+
+    if answer_text:
+        answer_text = normalize(answer_text)
+
         # ---------------------------
-        # Call Groq GPT-OSS API
+        # Call Groq/OpenRouter model
         # ---------------------------
         headers = {
             "Authorization": f"Bearer {API_KEY}",
@@ -42,36 +51,40 @@ def webhook():
         payload = {
             "model": MODEL_NAME,
             "messages": [
-                {"role": "system", "content": "Classify sentiment as Positive, Negative, or Neutral."},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert sentiment analyst. "
+                        "Determine if the overall *intent* of the user message is "
+                        "Positive, Negative, or Neutral. "
+                        "Consider sarcasm, irony, satire, mixed languages, emojis, "
+                        "and indirect wording. "
+                        "Respond with just one of these words."
+                    )
+                },
                 {"role": "user", "content": answer_text}
             ],
             "temperature": 0
         }
 
-        ai_text = ""
         try:
             r = requests.post(API_URL, json=payload, headers=headers, timeout=30)
             r.raise_for_status()
-            resp = r.json()
-            ai_text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+            ai_text = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            ai_lower = ai_text.lower()
+            if "positive" in ai_lower:
+                sentiment = "Positive"
+            elif "negative" in ai_lower:
+                sentiment = "Negative"
         except Exception as e:
             print("API Exception:", e)
-
-        # ---------------------------
-        # Determine sentiment
-        # ---------------------------
-        sentiment = "Neutral"
-        if "positive" in ai_text.lower():
-            sentiment = "Positive"
-        elif "negative" in ai_text.lower():
-            sentiment = "Negative"
 
     # ---------------------------
     # Return in QuestionPro customVariables format
     # ---------------------------
     return jsonify({
         "customVariables": {
-            "custom2": sentiment   # Code
+            "custom2": sentiment   # must match the Code you set in QuestionPro
         }
     })
 
