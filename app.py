@@ -4,18 +4,14 @@ import requests, os, re
 app = Flask(__name__)
 
 # -------------------------------
-# Environment Variables
+# Environment Variables (unchanged)
 # -------------------------------
 API_KEY = os.environ.get("GROQ_API_KEY")           # Your Groq/OpenRouter API key
-MODEL_NAME = os.environ.get("GROQ_MODEL", "mixtral-8x7b")  # or best Groq model you have
+MODEL_NAME = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 API_URL = os.environ.get("GROQ_URL", "https://api.groq.com/openai/v1/chat/completions")
 
-# -------------------------------
-# Helper: light normalization
-# -------------------------------
 def normalize(text: str) -> str:
-    # Collapse excessive whitespace & trim
-    return re.sub(r'\s+', ' ', text).strip()
+    return re.sub(r"\s+", " ", text).strip()
 
 # -------------------------------
 # Webhook Endpoint
@@ -24,25 +20,20 @@ def normalize(text: str) -> str:
 def webhook():
     data = request.json or {}
 
-    # ---------------------------
     # Extract Q1 answer text
-    # ---------------------------
     answer_text = ""
     for q in data.get("responseSet", []):
         if q.get("questionCode") == "Q1":
-            ans = q.get("answerValues", [])
-            if ans and "value" in ans[0]:
-                answer_text = ans[0]["value"].get("text", "")
+            vals = q.get("answerValues", [])
+            if vals and "value" in vals[0]:
+                answer_text = vals[0]["value"].get("text", "")
             break
 
-    sentiment = "Neutral"  # default if no text
+    sentiment = "Neutral"
 
     if answer_text:
         answer_text = normalize(answer_text)
 
-        # ---------------------------
-        # Call Groq/OpenRouter model
-        # ---------------------------
         headers = {
             "Authorization": f"Bearer {API_KEY}",
             "Content-Type": "application/json"
@@ -55,11 +46,9 @@ def webhook():
                     "role": "system",
                     "content": (
                         "You are an expert sentiment analyst. "
-                        "Determine if the overall *intent* of the user message is "
-                        "Positive, Negative, or Neutral. "
-                        "Consider sarcasm, irony, satire, mixed languages, emojis, "
-                        "and indirect wording. "
-                        "Respond with just one of these words."
+                        "Classify the overall intent of the message as Positive, Negative, or Neutral. "
+                        "Detect sarcasm, satire, irony, humor, and indirect wording. "
+                        "Respond with only one word."
                     )
                 },
                 {"role": "user", "content": answer_text}
@@ -71,33 +60,24 @@ def webhook():
             r = requests.post(API_URL, json=payload, headers=headers, timeout=30)
             r.raise_for_status()
             ai_text = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-            ai_lower = ai_text.lower()
-            if "positive" in ai_lower:
+            lower = ai_text.lower()
+            if "positive" in lower:
                 sentiment = "Positive"
-            elif "negative" in ai_lower:
+            elif "negative" in lower:
                 sentiment = "Negative"
         except Exception as e:
             print("API Exception:", e)
 
-    # ---------------------------
-    # Return in QuestionPro customVariables format
-    # ---------------------------
+    # Must match the Code field you set in QuestionPro (e.g., custom2)
     return jsonify({
         "customVariables": {
-            "custom2": sentiment   # must match the Code you set in QuestionPro
+            "custom2": sentiment
         }
     })
 
-
-# -------------------------------
-# Health Check / Test Endpoint
-# -------------------------------
 @app.route("/", methods=["GET"])
 def index():
     return "Webhook server is running!"
 
-# -------------------------------
-# Run App
-# -------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
